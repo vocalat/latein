@@ -102,6 +102,17 @@ test("central German noun data records non-productive plurals and weak noun form
   assert.deepEqual(KNOWN_GERMAN_NOUNS.Holz, { article: "das", plural: "Hölzer" });
   assert.deepEqual(KNOWN_GERMAN_NOUNS.Stadt, { article: "die", plural: "Städte" });
   assert.deepEqual(KNOWN_GERMAN_NOUNS.Herr, { article: "der", plural: "Herren", oblique: "Herrn", genitive: "Herrn" });
+  assert.equal(KNOWN_GERMAN_NOUNS.Acker.plural, "Äcker");
+  assert.equal(KNOWN_GERMAN_NOUNS.Hand.plural, "Hände");
+  assert.equal(KNOWN_GERMAN_NOUNS.Fluss.plural, "Flüsse");
+  assert.deepEqual(
+    {
+      plural: KNOWN_GERMAN_NOUNS.Bauer.plural,
+      oblique: KNOWN_GERMAN_NOUNS.Bauer.oblique,
+      genitive: KNOWN_GERMAN_NOUNS.Name.genitive
+    },
+    { plural: "Bauern", oblique: "Bauern", genitive: "Namens" }
+  );
 });
 
 test("non-productive plurals are realized from central lexical data", () => {

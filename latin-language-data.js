@@ -174,6 +174,24 @@ export const VERB_FRAMES = Object.freeze({
   adsum: { cases: ["dative"], defaultSense: "beistehen" },
   appropinquo: { cases: ["dative"], defaultSense: "sich nähern" },
   careo: { cases: ["ablative"], germanAblativePreposition: "ohne", germanAblativeCase: "accusative", defaultSense: "entbehren" },
+  capio: {
+    cases: ["accusative"],
+    defaultSense: "fassen",
+    senses: [
+      { objectLemmas: ["urbs", "civitas", "oppidum", "castellum", "castra"], german: "erobern" },
+      { objectSemanticClasses: ["settlement", "territory"], german: "erobern" }
+    ]
+  },
+  colo: {
+    cases: ["accusative"],
+    defaultSense: "pflegen",
+    senses: [
+      { objectSemanticClasses: ["divine"], german: "verehren" },
+      { objectLemmas: ["deus", "dea", "numen"], german: "verehren" },
+      { objectSemanticClasses: ["land"], german: "bebauen" },
+      { objectLemmas: ["ager", "terra"], german: "bebauen" }
+    ]
+  },
   cogo: { cases: ["accusative"], allowsInfinitive: true, defaultSense: "zwingen" },
   constat: {
     allowsAci: true,
@@ -202,6 +220,14 @@ export const VERB_FRAMES = Object.freeze({
   defendo: { cases: ["accusative"], defaultSense: "verteidigen" },
   dico: { cases: ["accusative"], allowsAci: true, nciGermanVerb: "sollen", defaultSense: "sagen" },
   discedo: { defaultSense: "weggehen" },
+  duco: {
+    cases: ["accusative"],
+    defaultSense: "führen",
+    senses: [
+      { objectLemmas: ["uxor"], german: "heiraten" },
+      { objectLemmas: ["exercitus", "copia", "agmen"], german: "führen" }
+    ]
+  },
   dubito: {
     defaultSense: "zweifeln",
     clauseComplements: { quin: { type: "quin-content", germanConnector: "dass" } }
@@ -265,6 +291,16 @@ export const VERB_FRAMES = Object.freeze({
       germanVerb: "dürfen",
       realizeInfinitiveSubject: true
     }
+  },
+  lego: {
+    cases: ["accusative"],
+    defaultSense: "lesen",
+    senses: [
+      { objectSemanticClasses: ["text"], german: "lesen" },
+      { objectLemmas: ["liber", "epistula", "littera", "carmen"], german: "lesen" },
+      { objectSemanticClasses: ["plant", "harvest"], german: "pflücken" },
+      { objectLemmas: ["rosa", "flos", "fructus"], german: "pflücken" }
+    ]
   },
   noceo: { cases: ["dative"], defaultSense: "schaden" },
   metuo: {
@@ -333,11 +369,17 @@ export const VERB_FRAMES = Object.freeze({
     germanAblativeCase: "dative",
     defaultSense: "übertreffen"
   },
-  quaero: { cases: ["accusative"], allowsIndirectQuestion: true, defaultSense: "suchen" },
+  quaero: {
+    cases: ["accusative"],
+    allowsIndirectQuestion: true,
+    defaultSense: "suchen",
+    senses: [{ withConstruction: "indirect-question", german: "fragen" }]
+  },
   rogo: {
     cases: ["accusative"],
     allowsUt: true,
     defaultSense: "bitten",
+    senses: [{ withConstruction: "indirect-question", german: "fragen" }],
     clauseComplements: {
       ut: { type: "complement", germanConnector: "dass" },
       ne: { type: "content", germanConnector: "dass", semanticNegation: true }
@@ -385,22 +427,87 @@ export const VERB_FRAMES = Object.freeze({
   }
 });
 
+/**
+ * Reusable dependency-level collocations.  They select a verbal sense from
+ * lemma, grammatical role and semantic class; no complete sentence or token
+ * position is stored here.
+ */
+export const LATIN_COLLOCATIONS = Object.freeze([
+  {
+    id: "capio-settlement",
+    head: "capio",
+    objectLemmas: ["urbs", "civitas", "oppidum", "castellum", "castra"],
+    objectSemanticClasses: ["settlement", "territory"],
+    german: "erobern",
+    weight: 126
+  },
+  {
+    id: "lego-text",
+    head: "lego",
+    objectLemmas: ["liber", "epistula", "littera", "carmen"],
+    objectSemanticClasses: ["text"],
+    german: "lesen",
+    weight: 112
+  },
+  {
+    id: "lego-harvest",
+    head: "lego",
+    objectLemmas: ["rosa", "flos", "fructus"],
+    objectSemanticClasses: ["plant", "harvest"],
+    german: "pflücken",
+    weight: 128
+  },
+  {
+    id: "colo-divine",
+    head: "colo",
+    objectLemmas: ["deus", "dea", "numen"],
+    objectSemanticClasses: ["divine"],
+    german: "verehren",
+    weight: 124
+  },
+  {
+    id: "colo-land",
+    head: "colo",
+    objectLemmas: ["ager", "terra"],
+    objectSemanticClasses: ["land"],
+    german: "bebauen",
+    weight: 124
+  },
+  {
+    id: "duco-group",
+    head: "duco",
+    objectLemmas: ["exercitus", "copia", "agmen"],
+    objectSemanticClasses: ["group", "military"],
+    german: "führen",
+    weight: 108
+  },
+  {
+    id: "duco-spouse",
+    head: "duco",
+    objectLemmas: ["uxor"],
+    objectSemanticClasses: ["spouse"],
+    german: "heiraten",
+    weight: 132,
+    directObjectIndefinite: true
+  }
+]);
+
 /** Extensible lemma patterns for idioms; no complete source sentence appears. */
 export const LATIN_IDIOMS = Object.freeze([
-  { id: "gratias-agere", lemmas: ["gratia", "ago"], german: "danken", head: "ago", consumes: ["gratia"] },
-  { id: "auxilium-ferre", lemmas: ["auxilium", "fero"], german: "Hilfe leisten", head: "fero", consumes: ["auxilium"] },
-  { id: "bellum-gerere", lemmas: ["bellum", "gero"], german: "Krieg führen", head: "gero", consumes: ["bellum"] },
-  { id: "consilium-capere", lemmas: ["consilium", "capio"], german: "beschließen", head: "capio", consumes: ["consilium"] },
-  { id: "iter-facere", lemmas: ["iter", "facio"], german: "reisen", head: "facio", consumes: ["iter"] },
-  { id: "sacrum-facere", lemmas: ["sacrum", "facio"], german: "ein Opfer darbringen", head: "facio", consumes: ["sacrum"] },
-  { id: "memoria-tenere", lemmas: ["memoria", "teneo"], german: "im Gedächtnis behalten", head: "teneo", consumes: ["memoria"] },
-  { id: "finem-facere", lemmas: ["finis", "facio"], german: "ein Ende machen", head: "facio", consumes: ["finis"] },
-  { id: "curae-esse", lemmas: ["cura", "sum"], german: "wichtig sein", head: "sum", consumes: ["cura"] },
+  { id: "gratias-agere", head: "ago", arguments: [{ lemma: "gratia", role: "directObject" }], german: "danken", consumes: ["gratia"] },
+  { id: "auxilium-ferre", head: "fero", arguments: [{ lemma: "auxilium", role: "directObject" }], german: "Hilfe leisten", consumes: ["auxilium"] },
+  { id: "bellum-gerere", head: "gero", arguments: [{ lemma: "bellum", role: "directObject" }], german: "Krieg führen", consumes: ["bellum"] },
+  { id: "consilium-capere", head: "capio", arguments: [{ lemma: "consilium", role: "directObject" }], german: "beschließen", consumes: ["consilium"] },
+  { id: "iter-facere", head: "facio", arguments: [{ lemma: "iter", role: "directObject" }], german: "reisen", consumes: ["iter"] },
+  { id: "sacrum-facere", head: "facio", arguments: [{ lemma: "sacrum", role: "directObject" }], german: "ein Opfer darbringen", consumes: ["sacrum"] },
+  { id: "memoria-tenere", head: "teneo", arguments: [{ lemma: "memoria", role: "directObject" }], german: "im Gedächtnis behalten", consumes: ["memoria"] },
+  { id: "finem-facere", head: "facio", arguments: [{ lemma: "finis", role: "directObject" }], german: "ein Ende machen", consumes: ["finis"] },
+  { id: "curae-esse", head: "sum", arguments: [{ lemma: "cura", role: "indirectObject" }], german: "wichtig sein", consumes: ["cura"] },
   {
     id: "opus-esse",
-    lemmas: ["opus", "sum"],
-    german: "brauchen",
     head: "sum",
+    arguments: [{ lemma: "opus", role: "subject" }],
+    german: "brauchen",
     consumes: ["opus"],
     subjectRole: "indirectObject",
     directObjectRole: "ablative",
@@ -409,9 +516,9 @@ export const LATIN_IDIOMS = Object.freeze([
   },
   {
     id: "necesse-esse",
-    lemmas: ["necesse", "sum"],
-    german: "müssen",
     head: "sum",
+    arguments: [{ lemma: "necesse", role: "modifier" }],
+    german: "müssen",
     consumes: ["necesse"],
     requiresInfinitive: true,
     impersonal: {
@@ -424,9 +531,9 @@ export const LATIN_IDIOMS = Object.freeze([
   },
   {
     id: "mos-esse",
-    lemmas: ["mos", "sum"],
-    german: "pflegen",
     head: "sum",
+    arguments: [{ lemma: "mos", role: "subject" }],
+    german: "pflegen",
     consumes: ["mos"],
     requiresInfinitive: true,
     impersonal: {
@@ -574,30 +681,36 @@ export const GERMAN_PARTICIPLES = Object.freeze({
 });
 
 export const KNOWN_GERMAN_NOUNS = Object.freeze({
+  "Acker": { article: "der", plural: "Äcker" },
+  "Bauer": { article: "der", plural: "Bauern", oblique: "Bauern", genitive: "Bauern" },
   "Buch": { article: "das", plural: "Bücher" },
+  "Burg": { article: "die", plural: "Burgen" },
   "Bürger": { article: "der", plural: "Bürger" },
   "Feind": { article: "der", plural: "Feinde" },
+  "Fluss": { article: "der", plural: "Flüsse", genitive: "Flusses" },
   "Friede": { article: "der", plural: "Frieden", oblique: "Frieden" },
   "Freund": { article: "der", plural: "Freunde" },
-  "Gesandter": { article: "der", plural: "Gesandten" },
+  "Gesandter": { article: "der", plural: "Gesandten", oblique: "Gesandten", genitive: "Gesandten" },
   "Gott": { article: "der", plural: "Götter" },
   "Großvater": { article: "der", plural: "Großväter" },
-  "Junge": { article: "der", plural: "Jungen" },
+  "Hand": { article: "die", plural: "Hände" },
+  "Junge": { article: "der", plural: "Jungen", oblique: "Jungen", genitive: "Jungen" },
   "Geist": { article: "der", plural: "Geister" },
   "Körper": { article: "der", plural: "Körper" },
   "Mensch": { article: "der", plural: "Menschen", oblique: "Menschen" },
   "Kind": { article: "das", plural: "Kinder" },
   "Mann": { article: "der", plural: "Männer" },
   "Mädchen": { article: "das", plural: "Mädchen" },
+  "Name": { article: "der", plural: "Namen", oblique: "Namen", genitive: "Namens" },
   "Plan": { article: "der", plural: "Pläne" },
   "Rat": { article: "der", plural: "Räte" },
   "Römer": { article: "der", plural: "Römer" },
   "Krieg": { article: "der", plural: "Kriege" },
   "Schicksal": { article: "das", plural: "Schicksale" },
   "Teil": { article: "der", plural: "Teile" },
-  "Sklave": { article: "der", plural: "Sklaven" },
+  "Sklave": { article: "der", plural: "Sklaven", oblique: "Sklaven", genitive: "Sklaven" },
   "Sklavin": { article: "die", plural: "Sklavinnen" },
-  "Soldat": { article: "der", plural: "Soldaten" },
+  "Soldat": { article: "der", plural: "Soldaten", oblique: "Soldaten", genitive: "Soldaten" },
   "Sohn": { article: "der", plural: "Söhne" },
   "Tochter": { article: "die", plural: "Töchter" },
   "Frau": { article: "die", plural: "Frauen" },

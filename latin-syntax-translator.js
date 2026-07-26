@@ -18,6 +18,7 @@ import {
 } from "./latin-analysis.js";
 import { SOURCE_WEIGHTS, SUBORDINATORS } from "./latin-language-data.js";
 import { generateGermanSentence, postprocessGerman, realizeGermanClausePlan } from "./german-generator.js";
+import { buildGermanSentencePlan } from "./german-sentence-planner.js";
 import {
   annotateMorphologyConfidence,
   buildLatinSyntaxTree,
@@ -30,6 +31,7 @@ export {
   parseLatinSyntax,
   postprocessGerman,
   realizeGermanClausePlan,
+  buildGermanSentencePlan,
   resolveMorphology,
   selectContextualMeanings,
   tokenizeTranslationInput
@@ -57,7 +59,7 @@ export function translateLatinSyntax(matches = [], options = {}) {
     analysisConfidence: { confidence: 0, ambiguous: [], selectedInterpretationOnly: true },
     unresolved: [],
     diagnostics: ["empty"],
-    pipeline: { tokens: [], morphology: [], syntax: null, grammar: null, semantics: null }
+    pipeline: { tokens: [], morphology: [], syntax: null, grammar: null, semantics: null, germanPlan: null }
   };
 
   const morphology = annotateMorphologyConfidence(resolveMorphology(tokens, options));
@@ -66,7 +68,8 @@ export function translateLatinSyntax(matches = [], options = {}) {
   const syntax = { ...parsedSyntax, tree: syntaxTree, confidence: syntaxTree.confidence };
   const grammar = interpretLatinGrammar(syntax, options);
   const semantics = selectContextualMeanings(grammar, options);
-  const generated = generateGermanSentence(semantics, options);
+  const germanPlan = buildGermanSentencePlan(semantics, options);
+  const generated = generateGermanSentence(germanPlan, options);
   const text = postprocessGerman(typeof generated === "string" ? generated : generated?.text || "", { question: syntax.type === "question" });
 
   const expressionIndexes = new Set((semantics.constructions || [])
@@ -114,7 +117,7 @@ export function translateLatinSyntax(matches = [], options = {}) {
       source: word.entry.source || "fallback",
       sense: word.sense
     })),
-    pipeline: { tokens, morphology, syntax, grammar, semantics },
+    pipeline: { tokens, morphology, syntax, grammar, semantics, germanPlan },
     analysis: semantics,
     syntax
   };

@@ -16,12 +16,16 @@ import {
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const TEST_ONLY_CODE = "VL1-23456-789AB-2222-2222-2222-2222-2222-2222-2222-2222";
 const TEST_NORMALIZED_CODE = "VL123456789AB22222222222222222222222222222222";
+const TEST_CUSTOM_CODE = "TESTKLASSE-2027";
+const TEST_CUSTOM_NORMALIZED_CODE = "TESTKLASSE2027";
 const ACCESS_DIGEST_NAMESPACE = "VocaLat/course-access/access-digest/v1";
 const SESSION_PROOF_NAMESPACE = "VocaLat/course-access/session-proof/v1";
 const SESSION_VERIFIER_NAMESPACE = "VocaLat/course-access/session-verifier/v1";
 
 const testRecord = makeRecord(TEST_NORMALIZED_CODE, "course-0001", 7);
 const testManifest = { schemaVersion: 1, revision: 7, active: true, records: [testRecord] };
+const customTestRecord = makeRecord(TEST_CUSTOM_NORMALIZED_CODE, "course-9001", 7);
+const customTestManifest = { schemaVersion: 1, revision: 7, active: true, records: [customTestRecord] };
 
 test("course-code normalization is stable and rejects malformed input", () => {
   assert.equal(normalizeCourseAccessCode(TEST_ONLY_CODE), TEST_NORMALIZED_CODE);
@@ -30,6 +34,21 @@ test("course-code normalization is stable and rejects malformed input", () => {
   assert.equal(normalizeCourseAccessCode("VL1-too-short"), "");
   assert.equal(normalizeCourseAccessCode(`VL1-${"A".repeat(200)}`), "");
   assert.equal(normalizeCourseAccessCode(null), "");
+});
+
+test("short custom access codes use the same private verification and session flow", async () => {
+  assert.equal(normalizeCourseAccessCode(TEST_CUSTOM_CODE), TEST_CUSTOM_NORMALIZED_CODE);
+  assert.equal(normalizeCourseAccessCode("  testklasse 2027  "), TEST_CUSTOM_NORMALIZED_CODE);
+  assert.equal(normalizeCourseAccessCode("TESTKLASSE/2027"), "");
+
+  assert.equal(await verifyCourseAccessCode(TEST_CUSTOM_CODE, customTestManifest, webcrypto), customTestRecord);
+  assert.equal(await verifyCourseAccessCode("testklasse-2027", customTestManifest, webcrypto), customTestRecord);
+  assert.equal(await verifyCourseAccessCode("TESTKLASSE-2028", customTestManifest, webcrypto), null);
+
+  const session = await createCourseAccessSession(TEST_CUSTOM_CODE, customTestRecord, webcrypto);
+  assert.ok(session);
+  assert.equal(Object.hasOwn(session, "code"), false);
+  assert.equal(await verifyCourseAccessSession(session, customTestManifest, webcrypto), customTestRecord);
 });
 
 test("a fixed valid vector succeeds and a wrong code fails", async () => {
@@ -61,8 +80,9 @@ test("the committed manifest is generic, active and contains no plaintext code o
   assert.equal(manifest.schemaVersion, 1);
   assert.equal(manifest.active, true);
   assert.ok(Number.isSafeInteger(manifest.revision) && manifest.revision > 0);
-  assert.equal(manifest.records.length, 6);
+  assert.equal(manifest.records.length, 7);
   assert.doesNotMatch(source, /VL1-[0-9A-Z-]{32,}/);
+  assert.doesNotMatch(source, /(?:^|["\s:])\d{1,3}[a-z]?-\d{4}(?:["\s,}]|$)/i);
   assert.doesNotMatch(source, /email|customer|kunde|name|label|plaintext/i);
 
   const ids = new Set();
@@ -77,8 +97,8 @@ test("the committed manifest is generic, active and contains no plaintext code o
     ids.add(record.id);
     digests.add(record.accessDigest);
   }
-  assert.equal(ids.size, 6);
-  assert.equal(digests.size, 6);
+  assert.equal(ids.size, 7);
+  assert.equal(digests.size, 7);
 });
 
 test("generator refuses private output anywhere inside the workspace", () => {

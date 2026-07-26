@@ -90,6 +90,7 @@ test("whole-site gate keeps PayPal and access codes without extra introductory c
   assert.match(app, /paypal-subscription-buttons/);
   assert.match(app, /id="site-access-form"/);
   assert.match(app, /name="accessCode"/);
+  assert.match(app, /id="site-access-code"[^>]*placeholder="Code eingeben"/);
   assert.match(app, /class="course-code-access"/);
   assert.match(app, /actions\.subscription\.create/);
   assert.match(app, /plan_id:\s*state\.paymentConfig\.planId/);

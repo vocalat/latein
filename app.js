@@ -233,7 +233,7 @@ function renderSiteGate() {
         <summary>Stattdessen Freischaltcode verwenden</summary>
         <form class="course-code-form" id="site-access-form">
           <label for="site-access-code">Freischaltcode</label>
-          <input class="field" id="site-access-code" name="accessCode" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" placeholder="VL1-…" required ${state.siteAccessBusy ? "disabled" : ""}>
+          <input class="field" id="site-access-code" name="accessCode" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" placeholder="Code eingeben" required ${state.siteAccessBusy ? "disabled" : ""}>
           ${state.siteAccessError ? `<div class="inline-alert error" role="alert">${escapeHtml(state.siteAccessError)}</div>` : ""}
           <button class="button" type="submit" ${state.siteAccessBusy ? "disabled" : ""}>${state.siteAccessBusy ? "Code wird geprüft …" : "Mit Code freischalten"}</button>
         </form>

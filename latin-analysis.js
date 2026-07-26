@@ -1116,6 +1116,7 @@ export function interpretLatinGrammar(parse, options = {}) {
   for (const idiom of LATIN_IDIOMS) {
     const indexes = idiom.lemmas.map(lemma => words.find(word => word.lemma === lemma)?.index ?? -1);
     if (!indexes.every(index => index >= 0)) continue;
+    if (idiom.requiresInfinitive && !words.some(word => word.morphology?.mood === "infinitive")) continue;
     const consumedIndexes = indexes.filter(index => idiom.consumes?.includes(words[index]?.lemma));
     // Inflected or modified idiom nouns carry information that must survive
     // generation (multa bella gerere -> viele Kriege führen).  In that case
@@ -1532,11 +1533,46 @@ export function interpretLatinGrammar(parse, options = {}) {
 
   normalizeStatementInfinitives(result, words);
 
+  /*
+   * Impersonal syntax is lexical valency, not a property of one particular
+   * sentence. Keep the selected realisation strategy on the semantic layer so
+   * the German generator does not have to rediscover it from surface order.
+   */
+  for (const finite of finiteWords) {
+    const idiom = result.constructions.find(item => item.type === "idiom" && item.headIndex === finite.index);
+    const idiomFrame = idiom ? LATIN_IDIOMS.find(item => item.id === idiom.id) : null;
+    const frame = VERB_FRAMES[finite.lemma];
+    const valency = idiomFrame?.impersonal
+      || frame?.impersonal
+      || (finite.morphology?.voice === "passive" ? frame?.passiveImpersonal : null);
+    if (!valency) continue;
+    const clause = result.clauses.find(item => item.tokenIndexes.includes(finite.index));
+    if (valency.whenNoSubject && clause?.roles.subject?.length) continue;
+    result.constructions.push({
+      type: "impersonal",
+      governingIndex: finite.index,
+      source: idiom ? "idiom" : "verb-frame",
+      ...valency
+    });
+  }
+
   for (const clause of result.clauses) {
     const marker = clause.marker;
     const finite = clause.headIndex != null ? words[clause.headIndex] : null;
-    if (marker === "ut") {
-      const previous = nearestFiniteBefore(words, clause.markerIndex);
+    const previous = nearestFiniteBefore(words, clause.markerIndex);
+    const complementGovernor = VERB_FRAMES[previous?.lemma]?.clauseComplements?.[marker]
+      ? previous
+      : finiteWords.find(word =>
+        !clause.tokenIndexes.includes(word.index)
+        && Boolean(VERB_FRAMES[word.lemma]?.clauseComplements?.[marker])
+      );
+    const complementRule = VERB_FRAMES[complementGovernor?.lemma]?.clauseComplements?.[marker];
+    if (complementRule) {
+      clause.type = complementRule.type || "content";
+      clause.germanConnector = complementRule.germanConnector || "dass";
+      clause.semanticNegation = Boolean(complementRule.semanticNegation);
+      clause.complementGovernorIndex = complementGovernor.index;
+    } else if (marker === "ut") {
       const precedingTokens = words.slice(0, clause.markerIndex).map(word => word.normalized);
       if (finite?.morphology.mood === "indicative") clause.type = "temporal";
       else if (precedingTokens.some(token => ["tam", "tantus", "talis", "tot", "ita", "sic"].includes(token))) clause.type = "consecutive";
@@ -1545,6 +1581,8 @@ export function interpretLatinGrammar(parse, options = {}) {
       else clause.type = "content";
     } else if (marker === "ne") {
       clause.type = clause.id === result.rootClauseId || result.clauses.length === 1 ? "prohibition" : "negative-final";
+    } else if (marker === "quin") {
+      clause.type = "quin-content";
     } else if (marker === "si" || marker === "nisi") clause.type = "conditional";
     else if (marker === "cum") clause.type = words.some(word => word.normalized === "tamen") ? "concessive" : finite?.morphology.tense === "pluperfect" || finite?.morphology.tense === "perfect" ? "temporal-anterior" : "temporal";
     else if (["quia", "quoniam", "quod"].includes(marker)) clause.type = "causal";
@@ -1555,7 +1593,19 @@ export function interpretLatinGrammar(parse, options = {}) {
   }
   for (const clause of result.clauses.filter(clause => clause.type === "free-relative")) result.constructions.push({ type: "free-relative", clauseId: clause.id });
   for (const clause of result.clauses.filter(clause => clause.type === "indirect-question")) result.constructions.push({ type: "indirect-question", clauseId: clause.id });
-  for (const clause of result.clauses.filter(clause => ["final", "negative-final", "consecutive", "conditional", "temporal", "temporal-anterior", "causal", "relative"].includes(clause.type))) result.constructions.push({ type: clause.type, clauseId: clause.id });
+  for (const clause of result.clauses.filter(clause => [
+    "final", "negative-final", "consecutive", "conditional", "temporal",
+    "temporal-anterior", "causal", "concessive", "complement", "content",
+    "fear-content", "quin-content", "relative"
+  ].includes(clause.type))) {
+    result.constructions.push({
+      type: clause.type,
+      clauseId: clause.id,
+      governingIndex: clause.complementGovernorIndex
+        ?? nearestFiniteBefore(words, clause.markerIndex)?.index
+        ?? null
+    });
+  }
 
   if (!finiteWords.length && !result.constructions.some(construction => construction.type === "ablative-absolute")) result.diagnostics.push("syntax-incomplete");
   if (words.some(word => !word.entry && !isStructural(word))) result.diagnostics.push("unresolved-lexeme");
@@ -1910,6 +1960,7 @@ function isPrepositionalCum(words, index) {
 function subordinateType(marker) {
   if (marker === "si" || marker === "nisi") return "conditional";
   if (["quia", "quoniam", "quod"].includes(marker)) return "causal";
+  if (marker === "quin") return "quin-content";
   if (["postquam"].includes(marker)) return "temporal-anterior";
   if (["cum", "dum", "antequam", "priusquam"].includes(marker)) return "temporal";
   return "subordinate";

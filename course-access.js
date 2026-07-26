@@ -5,6 +5,9 @@ const CODE_PREFIX = "VL1";
 const CODE_ID_LENGTH = 10;
 const CODE_SECRET_LENGTH = 32;
 const CROCKFORD_PATTERN = /^[0-9A-HJKMNP-TV-Z]+$/;
+const CUSTOM_CODE_PATTERN = /^[0-9A-Z]+$/;
+const CUSTOM_CODE_MIN_LENGTH = 6;
+const CUSTOM_CODE_MAX_LENGTH = 32;
 const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/;
 
 const encoder = new TextEncoder();
@@ -12,16 +15,25 @@ const encoder = new TextEncoder();
 /**
  * Return the canonical form used by every digest operation.
  *
- * Display codes use hyphens for readability, while their canonical form is
- * `VL1` followed by a 10-character lookup id and a 32-character, 160-bit
- * Crockford-Base32 secret. Ambiguous Crockford aliases are accepted only in
- * the code body, never in the fixed prefix.
+ * Strong generated codes use `VL1`, a 10-character lookup id and a
+ * 32-character, 160-bit Crockford-Base32 secret. Owner-created class codes
+ * may instead contain 6–32 letters or digits. Spaces and hyphens are display
+ * separators in both formats and do not affect the stored digest.
  */
 export function normalizeCourseAccessCode(input) {
   if (typeof input !== "string" || input.length > 128) return "";
 
   const compact = input.normalize("NFKC").toUpperCase().replace(/[\s-]+/g, "");
-  if (!compact.startsWith(CODE_PREFIX)) return "";
+  if (!compact.startsWith(CODE_PREFIX)) {
+    if (
+      compact.length < CUSTOM_CODE_MIN_LENGTH ||
+      compact.length > CUSTOM_CODE_MAX_LENGTH ||
+      !CUSTOM_CODE_PATTERN.test(compact) ||
+      !/[A-Z]/.test(compact) ||
+      !/[0-9]/.test(compact)
+    ) return "";
+    return compact;
+  }
 
   const body = compact.slice(CODE_PREFIX.length).replace(/O/g, "0").replace(/[IL]/g, "1");
   if (body.length !== CODE_ID_LENGTH + CODE_SECRET_LENGTH || !CROCKFORD_PATTERN.test(body)) return "";

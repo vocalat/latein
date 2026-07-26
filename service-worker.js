@@ -1,4 +1,4 @@
-const CACHE = "vocalat-premium-shell-v1";
+const CACHE = "vocalat-premium-shell-v2";
 const RUNTIME_CACHE = "vocalat-premium-runtime-v1";
 const ASSETS = [
   "./",

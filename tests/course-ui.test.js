@@ -1,0 +1,181 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const app = readFileSync(resolve(root, "app.js"), "utf8");
+const html = readFileSync(resolve(root, "index.html"), "utf8");
+const styles = readFileSync(resolve(root, "styles.css"), "utf8");
+
+test("site gate, course screens and every primary course action are wired", () => {
+  for (const renderer of ["renderSiteGate", "renderCourseMap", "renderCourseModule", "renderCourseQuiz", "renderCourseSummary"]) {
+    assert.match(app, new RegExp(`function ${renderer}\\(`));
+  }
+  for (const action of [
+    "data-course-continue",
+    "data-course-module",
+    "data-course-pack",
+    "data-course-start",
+    "data-course-choice",
+    "data-course-hint",
+    "data-course-next",
+    "data-course-retry",
+    "data-course-next-pack",
+    "data-site-lock"
+  ]) assert.match(app, new RegExp(action));
+  assert.match(app, /event\.target\.id === "site-access-form"/);
+  assert.match(app, /event\.target\.id === "course-answer-form"/);
+  assert.match(app, /verifyCourseAccessSession\(proof, state\.siteAccessManifest\)/);
+});
+
+test("course accessibility and mobile feedback are present", () => {
+  assert.match(html, /rel="icon" href="assets\/icon-192\.png"/);
+  assert.match(html, /class="skip-link" href="#main"/);
+  assert.match(html, /id="announcer"[^>]*role="status"[^>]*aria-live="polite"/);
+  assert.doesNotMatch(html, /id="app"[^>]*aria-live/);
+  assert.match(app, /aria-current="page"/);
+  assert.match(app, /aria-pressed=/);
+  assert.match(app, /role="progressbar"/);
+  assert.match(app, /aria-label="Kursfortschritt"/);
+  assert.match(app, /class="feedback success" role="status"/);
+  assert.match(app, /lang="la"/);
+  assert.match(styles, /\.course-choice\.correct[^}]*background:/s);
+  assert.match(styles, /\.course-choice\.wrong[^}]*background:/s);
+  assert.match(styles, /@media \(max-width: 700px\)[\s\S]*\.course-overview-actions/);
+});
+
+test("course and vocabulary are separate top-level destinations", () => {
+  const navBlock = app.match(/const NAV = \[([\s\S]*?)\];/)?.[1] || "";
+  const ids = [...navBlock.matchAll(/id: "([^"]+)"/g)].map(match => match[1]);
+  assert.deepEqual(ids, ["kurs", "vokabeln", "ueben", "uebersetzen", "grammatik"]);
+  assert.match(app, /state\.route === "kurs"\) renderCourse\(\)/);
+  assert.match(app, /state\.route === "vokabeln"\) renderVocabularyBrowser\(\)/);
+  assert.doesNotMatch(app, /learnView|learnSwitcher|data-learn-view/);
+  assert.match(app, /data-route="fortschritt"/);
+});
+
+test("course progress and whole-site access remain session-bound", () => {
+  assert.match(app, /const SITE_ACCESS_KEY = "vocalat-premium-site-access-v\d+"/);
+  assert.match(app, /const COURSE_PROGRESS_KEY/);
+  assert.match(app, /sessionStorage\.getItem\(SITE_ACCESS_KEY\)/);
+  assert.match(app, /sessionStorage\.setItem\(SITE_ACCESS_KEY/);
+  assert.match(app, /sessionStorage\.removeItem\(SITE_ACCESS_KEY\)/);
+  assert.match(app, /sessionStorage\.setItem\(COURSE_PROGRESS_KEY/);
+  assert.doesNotMatch(app, /const COURSE_ACCESS_KEY|state\.courseAccess/);
+  assert.doesNotMatch(app, /localStorage\.setItem/);
+});
+
+test("free practice supports an accessible multi-lesson selection", () => {
+  assert.match(app, /practiceLessons:\s*"all"/);
+  assert.match(app, /class="lesson-picker-trigger"/);
+  assert.match(app, /aria-expanded=/);
+  assert.match(app, /data-practice-picker-close/);
+  assert.match(app, /data-practice-lesson/);
+  assert.match(app, /data-practice-select-all/);
+  assert.match(app, /data-practice-clear/);
+  assert.match(app, /new Set\(selectedPracticeLessons\(\)\)/);
+  assert.match(styles, /\.lesson-checkbox-grid/);
+  assert.doesNotMatch(app, /Latein lesen, Deutsch antworten|class="lesson-multiselect"/);
+  assert.doesNotMatch(styles, /lesson-multiselect|content:\s*"⌄"|content:\s*"⌃"/);
+});
+
+test("whole-site gate keeps PayPal and access codes without extra introductory copy", () => {
+  assert.match(app, /function renderSiteGate\(\)/);
+  assert.match(app, /class="site-gate"/);
+  assert.match(app, /VocaLat freischalten/);
+  assert.match(app, /Vokabeln, Übungen, Übersetzer, Grammatik und den vollständigen Kurs/);
+  assert.match(app, /4,99 € monatlich/);
+  assert.match(app, /paypal-subscription-buttons/);
+  assert.match(app, /id="site-access-form"/);
+  assert.match(app, /name="accessCode"/);
+  assert.match(app, /class="course-code-access"/);
+  assert.match(app, /actions\.subscription\.create/);
+  assert.match(app, /plan_id:\s*state\.paymentConfig\.planId/);
+  assert.doesNotMatch(app, /Monatszugang mit PayPal|Freischaltung für den vollständigen Kurs|PayPal-Sandbox bereit|Derzeit wird kein echtes Geld abgebucht|Nach der Bestätigung gilt der Zugang|10 Module ·|Via Latina|Kurszugang/);
+  assert.doesNotMatch(app, /Prototyp|Latein verstehen – Schritt für Schritt|Mit PayPal testen/);
+  assert.doesNotMatch(app, /course-gate-hero|course-map-hero|course-chip/);
+  assert.doesNotMatch(app, /[\w.+-]+@[\w.-]+\.[a-z]{2,}/i);
+});
+
+test("the whole app and navigation stay blocked until site access is granted", () => {
+  const renderBody = app.match(/function render\(\) \{([\s\S]*?)\n\}/)?.[1] || "";
+  assert.match(renderBody, /renderNav\(\);\s*if \(!state\.siteAccessGranted\) \{\s*renderSiteGate\(\);\s*return;\s*\}/);
+
+  const gateIndex = renderBody.indexOf("if (!state.siteAccessGranted)");
+  const returnIndex = renderBody.indexOf("return;", gateIndex);
+  assert.ok(gateIndex >= 0 && returnIndex > gateIndex, "Die globale Zugangssperre muss vor den Routen abbrechen");
+  for (const renderer of ["renderCourse", "renderVocabularyBrowser", "renderPractice", "renderTranslate", "renderGrammar", "renderProgress"]) {
+    const routeIndex = renderBody.indexOf(`${renderer}()`);
+    assert.ok(routeIndex > returnIndex, `${renderer} darf erst nach der Zugangssperre aufgerufen werden`);
+  }
+
+  const navBody = app.match(/function renderNav\(\) \{([\s\S]*?)\n\}/)?.[1] || "";
+  assert.match(navBody, /nav\.hidden = !state\.siteAccessGranted/);
+  assert.match(navBody, /nav\.innerHTML = state\.siteAccessGranted/);
+  assert.match(app, /siteAccessGranted:\s*false/);
+});
+
+test("code, verified session and PayPal approval grant site access", () => {
+  assert.match(app, /async function unlockSite\(code\)/);
+  assert.match(app, /verifyCourseAccessCode\(code, state\.siteAccessManifest\)/);
+  assert.match(app, /saveSiteAccessSession\(\{\s*method: "code", proof: session\s*\}\)/);
+  assert.match(app, /state\.siteAccessGranted = true/);
+  assert.match(app, /verifyCourseAccessSession\(proof, state\.siteAccessManifest\)/);
+  assert.match(app, /state\.siteAccessGranted = Boolean\(state\.siteAccessRecord\)/);
+  assert.match(app, /onApprove\([^)]*\)\s*\{[\s\S]*?state\.siteAccessGranted = true/);
+  assert.match(app, /function lockSite\(\)[\s\S]*?clearSiteAccessSession\(\)[\s\S]*?state\.siteAccessGranted = false/);
+});
+
+test("course pages use a quiet linear structure instead of dashboard cards", () => {
+  assert.doesNotMatch(app, /Kursinhalt|Der Code und der Kursstand werden nicht dauerhaft/);
+  assert.match(app, /class="course-module-list"/);
+  assert.match(app, /class="course-overview"/);
+  assert.match(styles, /\/\* Calm, content-first course layout \*\/[\s\S]*\.course-module\s*\{[\s\S]*?border-radius:\s*0/);
+});
+
+test("grammar reference uses the ordered sequence and related navigation", () => {
+  assert.match(app, /orderGrammarSections\(\(await grammarResponse\.json\(\)\)\.abschnitte/);
+  assert.match(app, /class="grammar-sequence-nav"/);
+  assert.match(app, /Verwandte Formen und Regeln stehen direkt nacheinander/);
+  assert.match(app, /data-grammar-practice/);
+  assert.match(app, /function renderGrammarPractice/);
+  assert.doesNotMatch(app, /id="grammar-search"|Abschnitte suchen/);
+});
+
+test("grammar tables explain their content with concrete headings and columns", () => {
+  assert.match(app, /PPA, PPP und PFA im Vergleich/);
+  assert.match(app, /Deklination von/);
+  assert.match(app, /Die Formen sind nach Numerus, Kasus und Genus geordnet/);
+  assert.match(app, /Formen: 1\. Sg\. bis 3\. Pl\./);
+  assert.match(app, /flattenGrammarFormMatrix/);
+  assert.match(app, /zeitverhaeltnis: "Zeitverhältnis"/);
+  assert.match(app, /genus_verbi: "Handlungsrichtung"/);
+});
+
+test("translation uses the complete local vocabulary without a lesson gate", () => {
+  assert.doesNotMatch(app, /Vokabelstand|translation-lesson|Foto oder Screenshot · die Übersetzung startet automatisch/);
+  assert.match(app, /analyzeBookText\(state\.translationText, state\.vocabulary, state\.grammar, null/);
+});
+
+test("session-only implementation details are not shown to learners", () => {
+  assert.doesNotMatch(app, /Dieser Fortschritt, deine Favoriten und der Kursstand gelten nur für die aktuelle Browser-Sitzung/);
+  assert.doesNotMatch(app, /Kurspakete|\bPaket(?:e|en)?\b/);
+  assert.match(app, /Lerneinheiten/);
+});
+
+test("grammar practice supports one or multiple lessons without later material", () => {
+  assert.match(app, /data-grammar-picker/);
+  assert.match(app, /data-grammar-practice-lesson/);
+  assert.match(app, /data-grammar-select-all/);
+  assert.match(app, /data-grammar-clear/);
+  assert.match(app, /grammarPracticeLessons/);
+  assert.match(app, /lessons: selectedGrammarPracticeLessons\(\)/);
+  assert.match(app, /Wähle eine oder mehrere Lektionen für deinen Grammatiktest/);
+  assert.match(app, /Grammatiktest starten/);
+  assert.match(app, /grammarPracticeLessons: \[\]/);
+  assert.match(app, /selectedGrammarLessons\.size \? "" : "disabled"/);
+  assert.doesNotMatch(app, /Bis zur aktuellen Lektion|Bis Lektion|grammarPracticeMaxLesson|id="grammar-practice-lesson"/);
+  assert.doesNotMatch(app, /if \(!round\.length && category\)/);
+});

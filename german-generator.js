@@ -199,6 +199,10 @@ function renderClause(context, clause, options = {}) {
   consumed.add(finite.index);
   const idiom = context.semantics.constructions?.find(item => item.type === "idiom" && item.headIndex === finite.index);
   const idiomFrame = idiom ? LATIN_IDIOMS.find(item => item.id === idiom.id) : null;
+  const frame = VERB_FRAMES[finite.lemma];
+  const impersonal = context.semantics.constructions?.find(item =>
+    item.type === "impersonal" && item.governingIndex === finite.index
+  );
   if (idiom) idiom.indexes.forEach(index => consumed.add(index));
 
   const vocativeText = clause.roles.vocative
@@ -218,15 +222,29 @@ function renderClause(context, clause, options = {}) {
   );
   if (infinitiveSubject) consumed.add(infinitiveSubject.infinitiveIndex);
   const subjectRole = idiomFrame?.subjectRole || "subject";
-  const subjects = (clause.roles[subjectRole] || []).filter(index => allowed.has(index) && !consumed.has(index));
+  const controllerRole = impersonal?.strategy === "promote-controller" ? impersonal.controllerRole : null;
+  const promotedControllers = controllerRole
+    ? (clause.roles[controllerRole] || []).filter(index => allowed.has(index) && !consumed.has(index))
+    : [];
+  const subjects = promotedControllers.length
+    ? promotedControllers
+    : (clause.roles[subjectRole] || []).filter(index => allowed.has(index) && !consumed.has(index));
   subjects.forEach(index => consumed.add(index));
   const coordinatedSubject = context.semantics.dependencies?.some(dependency =>
     dependency.type === "coordination"
     && subjects.includes(dependency.headIndex)
     && subjects.includes(dependency.dependentIndex)
   );
-  const agreement = verbAgreement(finite, subjects.map(index => words[index]), { coordinated: coordinatedSubject });
-  const subjectText = infinitiveSubject
+  const agreement = promotedControllers.length
+    ? promotedControllerAgreement(promotedControllers.map(index => words[index]))
+    : verbAgreement(finite, subjects.map(index => words[index]), { coordinated: coordinatedSubject });
+  const subjectText = impersonal?.strategy === "promote-controller"
+    ? promotedControllers.length
+      ? renderSubject(context, promotedControllers, consumed)
+      : impersonal.fallbackSubject || "man"
+    : impersonal?.strategy === "dummy-subject"
+      ? impersonal.germanSubject || "es"
+    : infinitiveSubject
     ? nominalizedInfinitive(germanInfinitive(words[infinitiveSubject.infinitiveIndex]))
     : subjects.length ? renderSubject(context, subjects, consumed)
       : options.omitSubject || finite.morphology?.mood === "imperative" ? "" : implicitSubject(agreement);
@@ -237,7 +255,9 @@ function renderClause(context, clause, options = {}) {
       counterfactual: clause.type === "conditional" || context.semantics.clauses.some(item => item.type === "conditional" && words[item.headIndex]?.morphology?.mood === "subjunctive")
     });
 
-  const effectivePredicate = idiom ? conjugateGerman(idiom.german, agreement, germanTense(finite.morphology, true)) : predicate;
+  const effectivePredicate = impersonal?.germanVerb
+    ? conjugateGerman(impersonal.germanVerb, agreement, germanTense(finite.morphology, true))
+    : idiom ? conjugateGerman(idiom.german, agreement, germanTense(finite.morphology, true)) : predicate;
   const expressions = context.semantics.constructions?.filter(item =>
     item.type === "expression" && item.kind !== "interrogative" && item.indexes.every(index => allowed.has(index))
   ) || [];
@@ -268,9 +288,12 @@ function renderClause(context, clause, options = {}) {
       return germanConstituent(`nach ${renderNominal(context, index, "nominative", consumed)}`, "direction", object);
     }
     const germanCase = idiomFrame?.germanDirectCase || VERB_FRAMES[finite.lemma]?.germanDirectCase || "accusative";
-    return germanConstituent(renderNominal(context, index, germanCase, consumed, { indefinite: Boolean(idiomFrame?.directObjectIndefinite) }), "direct-object", object);
+    const nominal = renderNominal(context, index, germanCase, consumed, { indefinite: Boolean(idiomFrame?.directObjectIndefinite) });
+    const text = frame?.germanDirectPreposition
+      ? contractPreposition(`${frame.germanDirectPreposition} ${nominal}`)
+      : nominal;
+    return germanConstituent(text, frame?.germanDirectPreposition ? "case-complement" : "direct-object", object);
   });
-  const frame = VERB_FRAMES[finite.lemma];
   const ablatives = clause.roles.ablative.filter(index => !consumed.has(index) && !comparisonStandards.has(index)).map(index => {
     const nominal = renderNominal(context, index, frame?.germanAblativeCase || "dative", consumed);
     if (frame?.germanAblativePreposition) {
@@ -312,7 +335,14 @@ function renderClause(context, clause, options = {}) {
     return germanConstituent(germanAdjectiveDegree(words[index], { predicate: true }), "predicate", words[index]);
   });
   const complementaryInfinitives = context.semantics.constructions?.filter(item => item.type === "complementary-infinitive" && item.governingIndex === finite.index && allowed.has(item.infinitiveIndex) && !consumed.has(item.infinitiveIndex)) || [];
-  const infinitives = complementaryInfinitives.map(item => {
+  const realizedInfinitives = [
+    ...complementaryInfinitives,
+    ...(infinitiveSubject && impersonal?.realizeInfinitiveSubject ? [{
+      infinitiveIndex: infinitiveSubject.infinitiveIndex,
+      withZu: Boolean(impersonal.infinitiveWithZu ?? frame?.germanInfinitiveWithZu)
+    }] : [])
+  ];
+  const infinitives = realizedInfinitives.map(item => {
     consumed.add(item.infinitiveIndex);
     return renderGermanInfinitiveGroup(words[item.infinitiveIndex], { withZu: item.withZu });
   }).filter(Boolean);
@@ -337,7 +367,8 @@ function renderClause(context, clause, options = {}) {
     consumed.add(item.participleIndex);
     return germanConstituent(renderSubstantivizedParticiple(words[item.participleIndex], item.grammaticalCase), "case-complement", words[item.participleIndex]);
   }).filter(item => item.text) || [];
-  const negated = clause.tokenIndexes.some(index => NEGATIONS.has(words[index].normalized));
+  const negated = Boolean(clause.semanticNegation)
+    || clause.tokenIndexes.some(index => NEGATIONS.has(words[index].normalized));
   clause.tokenIndexes.filter(index => NEGATIONS.has(words[index].normalized)).forEach(index => consumed.add(index));
   const remaining = clause.tokenIndexes.filter(index => !consumed.has(index) && !isStructural(words[index]) && !isFinite(words[index])).map(index =>
     germanConstituent(renderLooseWord(context, index, consumed), "remainder", words[index])
@@ -557,12 +588,27 @@ function renderAci(context, construction) {
 function renderNci(context, construction) {
   const { words } = context;
   const subjectIndex = construction.subjectIndex ?? context.semantics.clauses[0]?.roles.subject[0];
-  const subject = subjectIndex != null ? renderNominal(context, subjectIndex, "nominative", new Set()) : "man";
-  const predicates = statementPredicates(construction).map(predicate => renderNciPredicate(context, construction, predicate));
+  const controller = words[construction.controllerIndex ?? construction.governingIndex];
+  const frame = VERB_FRAMES[controller?.lemma] || {};
+  const subject = subjectIndex != null
+    ? renderNominal(context, subjectIndex, "nominative", new Set())
+    : frame.passiveImpersonal?.germanSubject || "man";
+  const predicates = statementPredicates(construction).map(predicate =>
+    renderNciPredicate(context, construction, predicate, { withZu: Boolean(frame.nciInfinitiveWithZu) })
+  );
   const predicateText = joinGerman(predicates, "und");
+  const agreement = { person: 3, number: words[subjectIndex]?.morphology.number || "singular" };
+  const governingVerb = frame.nciGermanVerb || "sollen";
+  if (frame.nciInfinitiveWithZu) {
+    return [
+      subject,
+      conjugateGerman(governingVerb, agreement, "present"),
+      predicateText
+    ].filter(Boolean).join(" ");
+  }
   return [
     subject,
-    conjugateGerman("sollen", { person: 3, number: words[subjectIndex]?.morphology.number || "singular" }, "present"),
+    conjugateGerman(governingVerb, agreement, "present"),
     predicateText
   ].filter(Boolean).join(" ");
 }
@@ -670,7 +716,7 @@ function renderAciPredicateVerb(context, construction, predicate, agreement) {
   );
 }
 
-function renderNciPredicate(context, construction, predicate) {
+function renderNciPredicate(context, construction, predicate, options = {}) {
   const { words } = context;
   const infinitive = words[predicate.infinitiveIndex];
   if (!infinitive) return "";
@@ -680,7 +726,7 @@ function renderNciPredicate(context, construction, predicate) {
   const child = context.semantics.constructions?.find(item =>
     item.type === "aci" && item.governingIndex === predicate.infinitiveIndex
   );
-  const complement = renderGermanInfinitiveGroup(infinitive);
+  const complement = renderGermanInfinitiveGroup(infinitive, { withZu: options.withZu });
   const local = [...objects, complement].filter(Boolean).join(" ");
   const subjectWord = words[construction.subjectIndex];
   return child ? `${local}, dass ${renderAciContent(context, child, subjectWord)}` : local;
@@ -1529,6 +1575,19 @@ function verbAgreement(finite, subjectWords = [], options = {}) {
   };
 }
 
+function promotedControllerAgreement(subjectWords = []) {
+  const tokens = new Set(subjectWords.map(word => word?.normalized));
+  const lemmas = new Set(subjectWords.map(word => normalizeLatin(word?.lemma || word?.entry?.lemma || word?.entry?.latein)));
+  const person = tokens.has("ego") || tokens.has("nos") || lemmas.has("ego") || lemmas.has("nos")
+    ? 1
+    : tokens.has("tu") || tokens.has("vos") || lemmas.has("tu") || lemmas.has("vos") ? 2 : 3;
+  const number = subjectWords.length > 1
+    || subjectWords.some(word => word?.morphology?.number === "plural" || ["nos", "vos"].includes(word?.normalized))
+    ? "plural"
+    : "singular";
+  return { person, number };
+}
+
 function implicitSubject(agreement) {
   const person = Number(agreement.person) || 3;
   const plural = agreement.number === "plural";
@@ -1545,6 +1604,13 @@ function reflexiveAciSubject(mainSubject) {
 function renderPronoun(word, grammaticalCase) {
   const personal = PERSONAL_PRONOUNS[word.normalized];
   if (personal?.[grammaticalCase]) return personal[grammaticalCase];
+  if (grammaticalCase === "nominative") {
+    const lemma = normalizeLatin(word.lemma || word.entry?.lemma || word.entry?.latein);
+    if (lemma === "ego" || ["mei", "mihi", "me"].includes(word.normalized)) return "ich";
+    if (lemma === "tu" || ["tui", "tibi", "te"].includes(word.normalized)) return "du";
+    if (lemma === "nos" || ["nostri", "nostrum", "nobis"].includes(word.normalized)) return "wir";
+    if (lemma === "vos" || ["vestri", "vestrum", "vobis"].includes(word.normalized)) return "ihr";
+  }
   if (RELATIVE_FORMS.has(word.normalized)) return relativePronounFor(word, grammaticalCase);
   if (["hic", "ille", "iste", "ipse", "idem"].includes(word.lemma)) {
     const standalone = {
@@ -1867,7 +1933,9 @@ function ablativeAbsoluteAdverbs(context, construction) {
 }
 
 function clauseConjunction(clause, words) {
+  if (clause.germanConnector) return clause.germanConnector;
   if (clause.type === "consecutive") return "dass";
+  if (clause.type === "quin-content") return "dass";
   if (clause.type === "final") return "damit";
   if (clause.type === "negative-final") return "damit nicht";
   if (clause.type === "conditional") return clause.marker === "nisi" ? "wenn nicht" : "wenn";

@@ -103,6 +103,7 @@ export const SUBORDINATORS = Object.freeze({
   nisi: "wenn nicht",
   ut: "dass",
   ne: "damit nicht",
+  quin: "dass",
   quamquam: "obwohl",
   etsi: "obwohl"
 });
@@ -127,9 +128,11 @@ export const PERSONAL_PRONOUNS = Object.freeze({
   tibi: { dative: "dir" },
   te: { accusative: "dich", ablative: "dir" },
   nos: { nominative: "wir", accusative: "uns", dative: "uns", ablative: "uns" },
+  nobis: { dative: "uns", ablative: "uns" },
   nostri: { genitive: "unser" },
   nostrum: { genitive: "von uns" },
   vos: { nominative: "ihr", accusative: "euch", dative: "euch", ablative: "euch" },
+  vobis: { dative: "euch", ablative: "euch" },
   vestri: { genitive: "euer" },
   vestrum: { genitive: "von euch" },
   se: { accusative: "sich", ablative: "sich" },
@@ -159,14 +162,50 @@ export const VERB_CLASSES = Object.freeze({
  */
 export const VERB_FRAMES = Object.freeze({
   abutor: { cases: ["ablative"], deponent: true, germanAblativeCase: "accusative", defaultSense: "missbrauchen" },
+  accido: {
+    allowsUt: true,
+    defaultSense: "geschehen",
+    impersonal: { strategy: "dummy-subject", germanSubject: "es", whenNoSubject: true },
+    clauseComplements: { ut: { type: "content", germanConnector: "dass" } }
+  },
+  audio: { cases: ["accusative"], allowsAci: true, nciGermanVerb: "sollen", defaultSense: "hören" },
   audeo: { allowsInfinitive: true, germanInfinitiveWithZu: true, semideponent: true, defaultSense: "wagen" },
   adiuvo: { cases: ["accusative"], germanDirectCase: "dative", defaultSense: "helfen" },
   adsum: { cases: ["dative"], defaultSense: "beistehen" },
   appropinquo: { cases: ["dative"], defaultSense: "sich nähern" },
-  credo: { cases: ["dative"], defaultSense: "glauben" },
+  careo: { cases: ["ablative"], germanAblativePreposition: "ohne", germanAblativeCase: "accusative", defaultSense: "entbehren" },
+  cogo: { cases: ["accusative"], allowsInfinitive: true, defaultSense: "zwingen" },
+  constat: {
+    allowsAci: true,
+    allowsUt: true,
+    defaultSense: "feststehen",
+    impersonal: { strategy: "dummy-subject", germanSubject: "es", whenNoSubject: true }
+  },
+  consto: {
+    allowsAci: true,
+    allowsUt: true,
+    defaultSense: "feststehen",
+    impersonal: { strategy: "dummy-subject", germanSubject: "es", whenNoSubject: true }
+  },
+  credo: { cases: ["dative"], allowsAci: true, defaultSense: "glauben" },
+  cupio: { allowsInfinitive: true, defaultSense: "wollen" },
+  debeo: { allowsInfinitive: true, defaultSense: "müssen" },
+  decet: {
+    cases: ["accusative"],
+    allowsInfinitive: true,
+    germanDirectCase: "accusative",
+    germanDirectPreposition: "für",
+    germanInfinitiveWithZu: true,
+    defaultSense: "sich ziemen",
+    impersonal: { strategy: "dummy-subject", germanSubject: "es", realizeInfinitiveSubject: true }
+  },
   defendo: { cases: ["accusative"], defaultSense: "verteidigen" },
-  dico: { cases: ["accusative"], allowsAci: true, defaultSense: "sagen" },
+  dico: { cases: ["accusative"], allowsAci: true, nciGermanVerb: "sollen", defaultSense: "sagen" },
   discedo: { defaultSense: "weggehen" },
+  dubito: {
+    defaultSense: "zweifeln",
+    clauseComplements: { quin: { type: "quin-content", germanConnector: "dass" } }
+  },
   differo: {
     cases: ["ablative"],
     germanAblativePreposition: "in",
@@ -189,18 +228,90 @@ export const VERB_FRAMES = Object.freeze({
       { objectLemmas: ["opus"], german: "verrichten" }
     ]
   },
+  faveo: { cases: ["dative"], defaultSense: "begünstigen" },
+  fruor: { cases: ["ablative"], deponent: true, germanAblativeCase: "accusative", defaultSense: "genießen" },
   fugio: {
     defaultSense: "fliehen",
     senses: [{ subjectLemmas: ["tempus"], german: "vergehen" }]
   },
   gero: { cases: ["accusative"], defaultSense: "führen" },
-  impero: { cases: ["dative"], allowsUt: true, defaultSense: "befehlen" },
+  impero: {
+    cases: ["dative"],
+    allowsUt: true,
+    defaultSense: "befehlen",
+    clauseComplements: {
+      ut: { type: "complement", germanConnector: "dass" },
+      ne: { type: "content", germanConnector: "dass", semanticNegation: true }
+    }
+  },
+  impedio: {
+    cases: ["accusative"],
+    defaultSense: "hindern",
+    clauseComplements: {
+      ne: { type: "content", germanConnector: "dass", semanticNegation: true },
+      quin: { type: "quin-content", germanConnector: "dass" }
+    }
+  },
   insto: { defaultSense: "drohen" },
   iubeo: { cases: ["accusative"], allowsInfinitive: true, defaultSense: "befehlen" },
+  licet: {
+    cases: ["dative"],
+    allowsInfinitive: true,
+    defaultSense: "dürfen",
+    impersonal: {
+      strategy: "promote-controller",
+      controllerRole: "indirectObject",
+      fallbackSubject: "man",
+      germanVerb: "dürfen",
+      realizeInfinitiveSubject: true
+    }
+  },
   noceo: { cases: ["dative"], defaultSense: "schaden" },
+  metuo: {
+    defaultSense: "fürchten",
+    clauseComplements: {
+      ne: { type: "fear-content", germanConnector: "dass" },
+      ut: { type: "fear-content", germanConnector: "dass", semanticNegation: true }
+    }
+  },
+  obliviscor: { cases: ["genitive", "accusative"], deponent: true, defaultSense: "vergessen" },
+  oportet: {
+    cases: ["accusative"],
+    allowsInfinitive: true,
+    defaultSense: "müssen",
+    impersonal: {
+      strategy: "promote-controller",
+      controllerRole: "directObject",
+      fallbackSubject: "man",
+      germanVerb: "müssen",
+      realizeInfinitiveSubject: true
+    }
+  },
   parco: { cases: ["dative"], defaultSense: "schonen" },
   pareo: { cases: ["dative"], defaultSense: "gehorchen" },
-  persuadeo: { cases: ["dative"], allowsUt: true, defaultSense: "überzeugen" },
+  persuadeo: {
+    cases: ["dative"],
+    allowsUt: true,
+    defaultSense: "überzeugen",
+    clauseComplements: {
+      ut: { type: "complement", germanConnector: "dass" },
+      ne: { type: "content", germanConnector: "dass", semanticNegation: true }
+    }
+  },
+  placet: {
+    cases: ["dative"],
+    allowsInfinitive: true,
+    germanInfinitiveWithZu: true,
+    defaultSense: "gefallen",
+    impersonal: { strategy: "dummy-subject", germanSubject: "es", realizeInfinitiveSubject: true, whenNoSubject: true }
+  },
+  placeo: {
+    cases: ["dative"],
+    allowsInfinitive: true,
+    germanInfinitiveWithZu: true,
+    defaultSense: "gefallen",
+    impersonal: { strategy: "dummy-subject", germanSubject: "es", realizeInfinitiveSubject: true, whenNoSubject: true }
+  },
   pergo: {
     defaultSense: "weitergehen",
     senses: [{ withDirectObject: true, german: "fortsetzen" }]
@@ -223,7 +334,15 @@ export const VERB_FRAMES = Object.freeze({
     defaultSense: "übertreffen"
   },
   quaero: { cases: ["accusative"], allowsIndirectQuestion: true, defaultSense: "suchen" },
-  rogo: { cases: ["accusative"], allowsUt: true, defaultSense: "bitten" },
+  rogo: {
+    cases: ["accusative"],
+    allowsUt: true,
+    defaultSense: "bitten",
+    clauseComplements: {
+      ut: { type: "complement", germanConnector: "dass" },
+      ne: { type: "content", germanConnector: "dass", semanticNegation: true }
+    }
+  },
   sequor: { cases: ["accusative"], deponent: true, germanDirectCase: "dative", defaultSense: "folgen" },
   sentio: {
     cases: ["accusative"],
@@ -232,10 +351,33 @@ export const VERB_FRAMES = Object.freeze({
   },
   timeo: {
     defaultSense: "sich fürchten",
-    senses: [{ withDirectObject: true, german: "fürchten" }]
+    clauseComplements: {
+      ne: { type: "fear-content", germanConnector: "dass" },
+      ut: { type: "fear-content", germanConnector: "dass", semanticNegation: true }
+    },
+    senses: [
+      { withConstruction: "fear-content", german: "fürchten" },
+      { withDirectObject: true, german: "fürchten" }
+    ]
   },
   utor: { cases: ["ablative"], deponent: true, germanAblativeCase: "accusative", defaultSense: "benutzen" },
-  video: { cases: ["accusative"], allowsAci: true, defaultSense: "sehen" },
+  vereor: {
+    deponent: true,
+    defaultSense: "fürchten",
+    clauseComplements: {
+      ne: { type: "fear-content", germanConnector: "dass" },
+      ut: { type: "fear-content", germanConnector: "dass", semanticNegation: true }
+    }
+  },
+  veto: { cases: ["accusative"], allowsInfinitive: true, defaultSense: "verbieten" },
+  video: {
+    cases: ["accusative"],
+    allowsAci: true,
+    nciGermanVerb: "scheinen",
+    nciInfinitiveWithZu: true,
+    passiveImpersonal: { strategy: "dummy-subject", germanSubject: "es", germanVerb: "scheinen", whenNoSubject: true },
+    defaultSense: "sehen"
+  },
   vinco: {
     cases: ["accusative"],
     defaultSense: "siegen",
@@ -264,6 +406,37 @@ export const LATIN_IDIOMS = Object.freeze([
     directObjectRole: "ablative",
     germanDirectCase: "accusative",
     directObjectIndefinite: true
+  },
+  {
+    id: "necesse-esse",
+    lemmas: ["necesse", "sum"],
+    german: "müssen",
+    head: "sum",
+    consumes: ["necesse"],
+    requiresInfinitive: true,
+    impersonal: {
+      strategy: "promote-controller",
+      controllerRole: "indirectObject",
+      fallbackSubject: "man",
+      germanVerb: "müssen",
+      realizeInfinitiveSubject: true
+    }
+  },
+  {
+    id: "mos-esse",
+    lemmas: ["mos", "sum"],
+    german: "pflegen",
+    head: "sum",
+    consumes: ["mos"],
+    requiresInfinitive: true,
+    impersonal: {
+      strategy: "promote-controller",
+      controllerRole: "indirectObject",
+      fallbackSubject: "man",
+      germanVerb: "pflegen",
+      infinitiveWithZu: true,
+      realizeInfinitiveSubject: true
+    }
   }
 ]);
 
@@ -326,6 +499,8 @@ export const GERMAN_IRREGULAR_PRESENT = Object.freeze({
   schlafen: [["schlafe", "schläfst", "schläft"], ["schlafen", "schlaft", "schlafen"]],
   tragen: [["trage", "trägst", "trägt"], ["tragen", "tragt", "tragen"]],
   helfen: [["helfe", "hilfst", "hilft"], ["helfen", "helft", "helfen"]],
+  gefallen: [["gefalle", "gefällst", "gefällt"], ["gefallen", "gefallt", "gefallen"]],
+  zweifeln: [["zweifle", "zweifelst", "zweifelt"], ["zweifeln", "zweifelt", "zweifeln"]],
   treffen: [["treffe", "triffst", "trifft"], ["treffen", "trefft", "treffen"]],
   werfen: [["werfe", "wirfst", "wirft"], ["werfen", "werft", "werfen"]],
   essen: [["esse", "isst", "isst"], ["essen", "esst", "essen"]],

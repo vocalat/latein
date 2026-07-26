@@ -1,4 +1,5 @@
 import { translateLatinSyntax } from "./latin-syntax-translator.js";
+import { SOURCE_WEIGHTS } from "./latin-language-data.js";
 
 const ANSWER_SEPARATORS = /[,;/]/;
 const LATIN_WORD_PATTERN = /[\p{L}\p{M}]+(?:[’'][\p{L}\p{M}]+)?/gu;
@@ -83,7 +84,7 @@ export function tokenizeLatinText(text = "") {
 }
 
 const RESOLVED_STATUSES = new Set(["exact", "book-form", "fallback", "contextual", "proper", "corrected", "ambiguous"]);
-const SOURCE_PRIORITY = { "proper-context": 5, glossary: 4, book: 3, fallback: 2, proper: 1 };
+const SOURCE_PRIORITY = SOURCE_WEIGHTS;
 
 export function analyzeBookText(text, vocabulary, grammarSections, maxLesson = null, fallbackEntries = [], morphologyAnalyses = new Map()) {
   const allowedVocabulary = vocabulary.filter(entry => maxLesson == null || Number(entry.lektion) <= Number(maxLesson));

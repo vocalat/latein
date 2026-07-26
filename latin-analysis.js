@@ -20,6 +20,7 @@ import {
   VERB_FRAMES
 } from "./latin-language-data.js";
 import { buildLatinSyntaxTree } from "./latin-syntax-tree.js";
+import { buildSemanticFrames, rankVerbMeanings } from "./latin-semantics.js";
 
 const FINITE_MOODS = new Set(["indicative", "subjunctive", "imperative"]);
 const NOMINAL_PARTS = new Set(["n", "pron", "proper", "adj", "num"]);
@@ -864,10 +865,15 @@ function segmentClauses(words, finiteIndexes, options) {
   }
   const relativeIndex = words.findIndex((word, index) => index > 0 && isRelativeMarker(words, index) && finiteIndexes.some(item => item > index));
   if (relativeIndex > 0) {
+    const precedingPrepositionIndex = relativeIndex - 1;
+    const relativeStart = LATIN_PREPOSITIONS[words[precedingPrepositionIndex]?.normalized]
+      && !words[precedingPrepositionIndex]?.punctuationAfter?.some(mark => [",", ";", ":"].includes(mark))
+      ? precedingPrepositionIndex
+      : relativeIndex;
     const relativeFinite = finiteIndexes.find(index => index > relativeIndex);
     const end = relativeFinite == null ? words.length - 1 : clausePunctuationEnd(words, relativeIndex, relativeFinite) ?? relativeFinite;
-    const relative = makeClause("relative", range(relativeIndex, end), words[relativeIndex], 1);
-    const mainIndexes = range(0, words.length - 1).filter(index => index < relativeIndex || index > end);
+    const relative = makeClause("relative", range(relativeStart, end), words[relativeIndex], 1);
+    const mainIndexes = range(0, words.length - 1).filter(index => index < relativeStart || index > end);
     const main = makeClause("main", mainIndexes, null, 0);
     relative.antecedentIndex = nearestAntecedent(words, relativeIndex);
     const resumedFinite = finiteIndexes.find(index => index > end);
@@ -1113,20 +1119,37 @@ export function interpretLatinGrammar(parse, options = {}) {
   const infinitives = words.filter(word => word.morphology?.mood === "infinitive");
   const allIndexes = range(0, words.length - 1);
 
-  for (const idiom of LATIN_IDIOMS) {
-    const indexes = idiom.lemmas.map(lemma => words.find(word => word.lemma === lemma)?.index ?? -1);
-    if (!indexes.every(index => index >= 0)) continue;
-    if (idiom.requiresInfinitive && !words.some(word => word.morphology?.mood === "infinitive")) continue;
-    const consumedIndexes = indexes.filter(index => idiom.consumes?.includes(words[index]?.lemma));
-    // Inflected or modified idiom nouns carry information that must survive
-    // generation (multa bella gerere -> viele Kriege führen).  In that case
-    // use the same verb's ordinary valency frame instead of collapsing the
-    // whole phrase into a fixed expression.
-    const expandedArgument = consumedIndexes.some(index =>
-      words[index]?.morphology?.number === "plural"
-      || result.dependencies.some(dependency => dependency.headIndex === index && dependency.type === "attribute")
-    );
-    if (!expandedArgument) result.constructions.push({ type: "idiom", id: idiom.id, indexes, headIndex: words.find(word => word.lemma === idiom.head)?.index, german: idiom.german, consumes: idiom.consumes });
+  for (const clause of result.clauses) {
+    for (const idiom of LATIN_IDIOMS) {
+      const headIndexes = clause.tokenIndexes.filter(index => words[index]?.lemma === idiom.head);
+      for (const headIndex of headIndexes) {
+        if (idiom.requiresInfinitive && !clause.tokenIndexes.some(index => words[index]?.morphology?.mood === "infinitive")) continue;
+        const argumentIndexes = [];
+        let complete = true;
+        for (const argument of idiom.arguments || []) {
+          const roleIndexes = argument.role === "modifier"
+            ? clause.tokenIndexes.filter(index => index !== headIndex)
+            : clause.roles?.[argument.role] || [];
+          const argumentIndex = roleIndexes.find(index => words[index]?.lemma === argument.lemma);
+          if (argumentIndex == null) {
+            complete = false;
+            break;
+          }
+          argumentIndexes.push(argumentIndex);
+        }
+        if (!complete) continue;
+        result.constructions.push({
+          type: "idiom",
+          id: idiom.id,
+          indexes: [headIndex, ...argumentIndexes],
+          argumentIndexes,
+          headIndex,
+          clauseId: clause.id,
+          german: idiom.german,
+          consumes: idiom.consumes
+        });
+      }
+    }
   }
 
   const expressionIndexes = new Set();
@@ -1144,13 +1167,34 @@ export function interpretLatinGrammar(parse, options = {}) {
   for (const participle of participles) {
     const esse = finiteWords.find(word => isEsse(word) && Math.abs(word.index - participle.index) <= 5 && numberAgrees(word.morphology, participle.morphology));
     if (esse && participle.morphology.tense === "future" && participle.morphology.voice === "passive" && caseIncludes(participle.morphology, "nominative")) {
+      const clause = result.clauses.find(item =>
+        item.tokenIndexes.includes(participle.index) && item.tokenIndexes.includes(esse.index)
+      ) || result.clauses.find(item => item.tokenIndexes.includes(participle.index)) || result.clauses[0];
       const subjectIndex = nearestAgreeingNominal(words, range(0, words.length - 1), participle.index, { nominativeOnly: true });
+      const agentIndex = (clause?.roles?.indirectObject || []).find(index => index !== subjectIndex) ?? null;
       if (subjectIndex != null) {
-        const construction = { type: "gerundive-obligation", participleIndex: participle.index, auxiliaryIndex: esse.index, subjectIndex };
+        const construction = {
+          type: "gerundive-obligation",
+          participleIndex: participle.index,
+          auxiliaryIndex: esse.index,
+          subjectIndex,
+          patientIndex: subjectIndex,
+          agentIndex,
+          clauseId: clause?.id ?? null
+        };
         result.constructions.push(construction);
         consumedParticiples.add(participle.index);
       } else if (participle.morphology.number === "singular" && ["n", "x", undefined].includes(participle.morphology.gender)) {
-        result.constructions.push({ type: "gerundive-obligation", participleIndex: participle.index, auxiliaryIndex: esse.index, subjectIndex: null, impersonal: true });
+        result.constructions.push({
+          type: "gerundive-obligation",
+          participleIndex: participle.index,
+          auxiliaryIndex: esse.index,
+          subjectIndex: null,
+          patientIndex: null,
+          agentIndex,
+          clauseId: clause?.id ?? null,
+          impersonal: true
+        });
         consumedParticiples.add(participle.index);
       }
     } else if (esse && participle.morphology.tense === "perfect") {
@@ -1592,7 +1636,19 @@ export function interpretLatinGrammar(parse, options = {}) {
     result.constructions.push({ type: "relative-clause", clauseId: clause.id, antecedentIndex: clause.antecedentIndex ?? nearestAntecedent(words, clause.markerIndex) });
   }
   for (const clause of result.clauses.filter(clause => clause.type === "free-relative")) result.constructions.push({ type: "free-relative", clauseId: clause.id });
-  for (const clause of result.clauses.filter(clause => clause.type === "indirect-question")) result.constructions.push({ type: "indirect-question", clauseId: clause.id });
+  for (const clause of result.clauses.filter(clause => clause.type === "indirect-question")) {
+    const governing = finiteWords
+      .filter(word => !clause.tokenIndexes.includes(word.index))
+      .filter(word => VERB_CLASSES.knowing.has(word.lemma)
+        || VERB_FRAMES[word.lemma]?.allowsIndirectQuestion
+        || word.lemma === "rogo")
+      .sort((left, right) => Math.abs(left.index - clause.markerIndex) - Math.abs(right.index - clause.markerIndex))[0];
+    result.constructions.push({
+      type: "indirect-question",
+      clauseId: clause.id,
+      governingIndex: governing?.index ?? null
+    });
+  }
   for (const clause of result.clauses.filter(clause => [
     "final", "negative-final", "consecutive", "conditional", "temporal",
     "temporal-anterior", "causal", "concessive", "complement", "content",
@@ -1620,15 +1676,38 @@ export function selectContextualMeanings(interpretation, options = {}) {
       ...(word.candidates || []).map(candidate => candidate.entry).filter(Boolean),
       ...(word.entries || [])
     ]).filter(entry => partMatches(entry.pos, partOf(word)) && entryMatchesResolvedLemma(entry, word));
-    const entries = compatibleEntries.length ? compatibleEntries : distinctEntries(word.entries || []);
-    const entry = preferredEntry(entries, word.morphology) || word.entry || null;
+    const unresolvedLemma = Boolean(word.lemma && partOf(word) !== "pron");
+    const entries = compatibleEntries.length
+      ? compatibleEntries
+      : unresolvedLemma ? [] : distinctEntries(word.entries || []);
+    const originalEntry = entryMatchesResolvedLemma(word.entry, word) ? word.entry : null;
+    const entry = preferredEntry(entries, word.morphology) || originalEntry || null;
     const senses = entries.flatMap(entrySenses);
     const frame = VERB_FRAMES[word.lemma];
     const clause = interpretation.clauses.find(clause => clause.tokenIndexes.includes(word.index));
-    const sense = chooseSense(word, senses, frame, clause, interpretation.words, constructions, options);
-    return { ...word, entries, entry, senses, sense, meaning: sense };
+    const selection = chooseSense(word, entries, senses, frame, clause, interpretation.words, constructions, options);
+    const sense = typeof selection === "string" ? selection : selection.sense;
+    const selectedEntry = typeof selection === "string"
+      ? entry
+      : Object.hasOwn(selection, "entry") ? selection.entry : entry;
+    return {
+      ...word,
+      entries,
+      entry: selectedEntry,
+      senses,
+      sense,
+      meaning: sense,
+      semanticSelection: typeof selection === "string" ? null : selection
+    };
   });
-  return { ...interpretation, words, meaningSelectionComplete: words.every(word => isStructural(word) || Boolean(word.sense)) };
+  const semanticFrames = buildSemanticFrames(interpretation, words);
+  return {
+    ...interpretation,
+    words,
+    semanticFrames,
+    semanticLayerComplete: semanticFrames.every(frame => !frame.predicate || Boolean(frame.predicate.sense)),
+    meaningSelectionComplete: words.every(word => isStructural(word) || Boolean(word.sense))
+  };
 }
 
 function entryMatchesResolvedLemma(entry, word) {
@@ -1641,51 +1720,119 @@ function entryMatchesResolvedLemma(entry, word) {
     .some(form => normalizeLatin(form) === word.lemma);
 }
 
-function chooseSense(word, senses, frame, clause, words, constructions) {
+function chooseSense(word, entries, senses, frame, clause, words, constructions) {
   const idiom = constructions.find(construction => construction.type === "idiom" && construction.headIndex === word.index);
-  if (idiom) return idiom.german;
+  if (idiom) return {
+    sense: idiom.german,
+    entry: preferredEntry(entries, word.morphology) || word.entry || null,
+    confidence: 1,
+    collocation: null,
+    candidates: [{ sense: idiom.german, source: "idiom", score: 200, evidence: [`idiom:${idiom.id}`] }]
+  };
   if (partOf(word) === "pron") return pronounMeaning(word);
   if (isStructural(word)) return structuralMeaning(word);
   if (isProper(word)) return cleanProperName(word.entry?.deutsch || word.entry?.meanings?.[0] || word.raw);
   if (["v", "ppa", "gerund", "supine"].includes(partOf(word))) {
-    const governsIndirectQuestion = constructions.some(construction => construction.type === "indirect-question")
-      && clause?.type === "main" && ["quaero", "rogo"].includes(word.lemma);
-    if (governsIndirectQuestion) return senses.map(cleanVerbSense).find(sense => /fragen/i.test(sense)) || "fragen";
     const prepositions = clause?.roles.prepositional.map(item => words[item.prepositionIndex]?.normalized) || [];
-    const objectLemmas = (clause?.roles.directObject || []).map(index => words[index]?.lemma);
+    const constructionPatientIndexes = word.morphology?.voice === "passive"
+      ? constructions
+        .filter(construction => construction.participleIndex === word.index)
+        .flatMap(construction => [
+          construction.patientIndex,
+          construction.subjectIndex,
+          construction.antecedentIndex
+        ])
+        .filter(index => index != null)
+      : [];
+    const semanticObjectIndexes = [...new Set([
+      ...(clause?.roles.directObject || []),
+      ...constructionPatientIndexes
+    ])];
+    const objectLemmas = semanticObjectIndexes.map(index => words[index]?.lemma);
     const subjectLemmas = (clause?.roles.subject || []).map(index => words[index]?.lemma);
-    const contextual = frame?.senses?.find(rule =>
-      (!rule.withPreposition || prepositions.includes(rule.withPreposition))
-      && (!rule.withDirectObject || objectLemmas.length > 0)
-      && (!rule.withConstruction || constructions.some(construction =>
-        construction.type === rule.withConstruction && construction.governingIndex === word.index
-      ))
-      && (!rule.objectLemmas || rule.objectLemmas.some(lemma => objectLemmas.includes(lemma)))
-      && (!rule.subjectLemmas || rule.subjectLemmas.some(lemma => subjectLemmas.includes(lemma)))
-    );
-    if (contextual?.german) return contextual.german;
-    if (frame?.defaultSense && senses.some(sense => normalizeGerman(sense).includes(normalizeGerman(frame.defaultSense)))) return frame.defaultSense;
-    if (frame?.defaultSense && !senses.length) return frame.defaultSense;
+    const indirectObjectLemmas = (clause?.roles.indirectObject || []).map(index => words[index]?.lemma);
+    const objectSemanticClasses = semanticObjectIndexes
+      .map(index => semanticClassOf(words[index]))
+      .filter(Boolean);
+    const subjectSemanticClasses = (clause?.roles.subject || [])
+      .map(index => semanticClassOf(words[index]))
+      .filter(Boolean);
+    const constructionTypes = constructions
+      .filter(construction => construction.governingIndex === word.index
+        || construction.headIndex === word.index
+        || construction.clauseId === clause?.id)
+      .map(construction => construction.type);
+    const lexicalCandidates = entries.flatMap(candidateEntry =>
+      entrySenses(candidateEntry).map(rawSense => ({
+        sense: cleanVerbSense(rawSense),
+        source: candidateEntry.source || "fallback",
+        entry: candidateEntry,
+        origin: "dictionary"
+      }))
+    ).filter(candidate => candidate.sense);
+    const selection = rankVerbMeanings({
+      lemma: word.lemma,
+      lexicalCandidates,
+      frame,
+      context: {
+        prepositions,
+        objectLemmas,
+        subjectLemmas,
+        indirectObjectLemmas,
+        objectSemanticClasses,
+        subjectSemanticClasses,
+        objectCases: semanticObjectIndexes.map(index => firstCase(words[index]?.morphology)).filter(Boolean),
+        constructionTypes,
+        tense: word.morphology?.tense,
+        mood: word.morphology?.mood,
+        voice: word.morphology?.voice
+      }
+    });
+    if (selection.sense) return selection;
     const verbal = senses.map(cleanVerbSense).filter(Boolean);
-    if (frame?.defaultSense) return frame.defaultSense;
-    // When a non-modal Latin verb offers both a lexical translation and a
-    // German modal paraphrase, keep the lexical verb.  Modal readings remain
-    // valid for actual Latin modal verbs such as posse, debere and velle.
-    const nonModal = VERB_CLASSES.modal.has(word.lemma)
-      ? verbal
-      : verbal.filter(value => !/^(?:dürfen|können|mögen|müssen|sollen|wollen)$/iu.test(value));
-    return nonModal.find(value => /(?:en|n)$/.test(value.replace(/^sich\s+/, "")))
-      || verbal.find(value => /(?:en|n)$/.test(value.replace(/^sich\s+/, "")))
-      || verbal[0]
-      || "";
+    return {
+      sense: verbal[0] || "",
+      entry: preferredEntry(entries, word.morphology) || word.entry || null,
+      confidence: 0,
+      collocation: null,
+      candidates: []
+    };
   }
   if (partOf(word) === "adj" && GERMAN_ADJECTIVE_LEMMA_SENSES[word.lemma]) {
     return GERMAN_ADJECTIVE_LEMMA_SENSES[word.lemma];
   }
   const governingLemma = clause?.headIndex != null ? words[clause.headIndex]?.lemma : null;
   const contextualNominal = VERB_FRAMES[governingLemma]?.nominalSenses?.[word.lemma];
-  if (contextualNominal) return contextualNominal;
+  if (contextualNominal) {
+    const contextualEntry = entries.find(candidateEntry =>
+      entrySenses(candidateEntry).some(sense => normalizeGerman(sense).includes(normalizeGerman(contextualNominal)))
+    ) || null;
+    return {
+      sense: contextualNominal,
+      entry: contextualEntry,
+      confidence: 1,
+      collocation: null,
+      candidates: [{
+        sense: contextualNominal,
+        source: contextualEntry?.source || "valency",
+        score: 100,
+        evidence: [`nominal-valency:${governingLemma}`]
+      }]
+    };
+  }
+  const bookSense = entries
+    .filter(entry => entry.source === "book")
+    .flatMap(entrySenses)
+    .map(cleanNominalSense)
+    .find(Boolean);
+  if (bookSense) return bookSense;
   return senses.map(cleanNominalSense).find(Boolean) || "";
+}
+
+function semanticClassOf(word) {
+  return word?.entry?.semanticClass
+    || word?.entries?.map(entry => entry.semanticClass).find(Boolean)
+    || null;
 }
 
 export function partOf(word) {
@@ -2127,9 +2274,23 @@ function normalizeStatementInfinitives(result, words) {
       grouped.push(group);
     }
     group.infinitiveIndexes.push(statement.infinitiveIndex);
+    const statementSubject = words[statement.subjectIndex];
+    const infinitive = words[statement.infinitiveIndex];
+    const periphrasticParticiple = isEsse(infinitive)
+      ? words
+        .filter(word =>
+          partOf(word) === "ppa"
+          && ["perfect", "future"].includes(word.morphology?.tense)
+          && word.index !== statement.subjectIndex
+          && Math.abs(word.index - infinitive.index) <= 6
+          && agreementScore(word.morphology, statementSubject?.morphology) >= 2
+        )
+        .sort((left, right) => Math.abs(left.index - infinitive.index) - Math.abs(right.index - infinitive.index))[0]
+      : null;
     group.predicates.push({
       infinitiveIndex: statement.infinitiveIndex,
       predicateIndex: statement.predicateIndex ?? null,
+      participleIndex: periphrasticParticiple?.index ?? null,
       objectIndexes: [...new Set(statement.objectIndexes || [])]
     });
     statementGroups.set(statement, group);
@@ -2159,6 +2320,7 @@ function normalizeStatementInfinitives(result, words) {
     const nestedIndexes = new Set([
       child.subjectIndex,
       child.predicateIndex,
+      ...(child.predicates || []).map(predicate => predicate.participleIndex),
       ...(child.objectIndexes || [])
     ].filter(index => index != null));
     parent.objectIndexes = parent.objectIndexes.filter(index => !nestedIndexes.has(index));
@@ -2283,7 +2445,15 @@ function nearestFiniteBefore(words, index) {
 }
 
 function hasPerfectPassiveAt(words, finiteIndex) {
-  return words.some(word => partOf(word) === "ppa" && word.morphology.tense === "perfect" && Math.abs(word.index - finiteIndex) <= 4);
+  const finite = words[finiteIndex];
+  if (!isEsse(finite)) return false;
+  return words.some(word =>
+    partOf(word) === "ppa"
+    && word.morphology.tense === "perfect"
+    && word.morphology.voice === "passive"
+    && Math.abs(word.index - finiteIndex) <= 4
+    && numberAgrees(word.morphology, finite.morphology)
+  );
 }
 
 function isEsseEntry(entry) {
@@ -2332,6 +2502,7 @@ function splitSenseAlternatives(value) {
 function cleanVerbSense(value) {
   return String(value)
     .replace(/^\|+/g, "")
+    .replace(/^\((be|emp|ent|er|ge|miss|ver|zer)\)(?=[a-zäöüß])/iu, "$1")
     .replace(/^\([^)]*\)\s*/, "")
     .replace(/\([^)]*(?:Dat|Akk|Gen|Abl)[^)]*\)/gi, "")
     .replace(/^(?:jdn\.?|jdm\.?|jemanden|jemandem|etw\.?|etwas)\s+/i, "")

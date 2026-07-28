@@ -51,6 +51,20 @@
       "sessionVerifier": "52b3c53e9ac8e8b915976d39578c4bfdb6c6539f6ba5bed1b71d8c383cef1d32",
       "active": true,
       "revision": 1
+    },
+    {
+      "id": "course-0008",
+      "accessDigest": "c8924d04c4a918ca247a2de842a933ac2fcab34f4fa06ea83fa31ec11e7c5c13",
+      "sessionVerifier": "fc0d578ad5ca79e164291f2cc625b64d065f6fb478abfd45dcde1f0f97332bf4",
+      "active": true,
+      "revision": 1
+    },
+    {
+      "id": "course-0009",
+      "accessDigest": "0ddea7fce02e76f708ee224edea32fdefe9faa742daf539a01ebb4cef06d72bc",
+      "sessionVerifier": "90abf653d843b57d1c285ff25774d3062a58efe84a0252e383b11611cb975817",
+      "active": true,
+      "revision": 1
     }
   ]
 }

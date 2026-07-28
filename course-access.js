@@ -5,9 +5,7 @@ const CODE_PREFIX = "VL1";
 const CODE_ID_LENGTH = 10;
 const CODE_SECRET_LENGTH = 32;
 const CROCKFORD_PATTERN = /^[0-9A-HJKMNP-TV-Z]+$/;
-const CUSTOM_CODE_PATTERN = /^[0-9A-Z]+$/;
-const CUSTOM_CODE_MIN_LENGTH = 6;
-const CUSTOM_CODE_MAX_LENGTH = 32;
+const CUSTOM_CODE_MAX_LENGTH = 128;
 const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/;
 
 const encoder = new TextEncoder();
@@ -17,27 +15,27 @@ const encoder = new TextEncoder();
  *
  * Strong generated codes use `VL1`, a 10-character lookup id and a
  * 32-character, 160-bit Crockford-Base32 secret. Owner-created class codes
- * may instead contain 6–32 letters or digits. Spaces and hyphens are display
- * separators in both formats and do not affect the stored digest.
+ * may contain any visible character and may be as short as one character.
+ * Spaces and hyphens remain display separators for backwards compatibility
+ * and do not affect the stored digest. Short codes are intentionally accepted
+ * for temporary tests, but provide no meaningful protection on a static site.
  */
 export function normalizeCourseAccessCode(input) {
-  if (typeof input !== "string" || input.length > 128) return "";
+  if (typeof input !== "string" || input.length > 256) return "";
 
-  const compact = input.normalize("NFKC").toUpperCase().replace(/[\s-]+/g, "");
-  if (!compact.startsWith(CODE_PREFIX)) {
-    if (
-      compact.length < CUSTOM_CODE_MIN_LENGTH ||
-      compact.length > CUSTOM_CODE_MAX_LENGTH ||
-      !CUSTOM_CODE_PATTERN.test(compact) ||
-      !/[A-Z]/.test(compact) ||
-      !/[0-9]/.test(compact)
-    ) return "";
-    return compact;
+  const compact = input
+    .normalize("NFKC")
+    .toLocaleUpperCase("de")
+    .replace(/[\s\p{Pd}]+/gu, "");
+  if (!compact || compact.length > CUSTOM_CODE_MAX_LENGTH || /\p{C}/u.test(compact)) return "";
+
+  if (compact.startsWith(CODE_PREFIX)) {
+    const body = compact.slice(CODE_PREFIX.length).replace(/O/g, "0").replace(/[IL]/g, "1");
+    if (body.length === CODE_ID_LENGTH + CODE_SECRET_LENGTH && CROCKFORD_PATTERN.test(body)) {
+      return `${CODE_PREFIX}${body}`;
+    }
   }
-
-  const body = compact.slice(CODE_PREFIX.length).replace(/O/g, "0").replace(/[IL]/g, "1");
-  if (body.length !== CODE_ID_LENGTH + CODE_SECRET_LENGTH || !CROCKFORD_PATTERN.test(body)) return "";
-  return `${CODE_PREFIX}${body}`;
+  return compact;
 }
 
 /**

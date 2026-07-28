@@ -1,0 +1,56 @@
+name: Freischaltcode verwalten
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Code aktivieren oder sperren
+        required: true
+        default: activate
+        type: choice
+        options:
+          - activate
+          - revoke
+
+permissions:
+  contents: write
+
+concurrency:
+  group: vocalat-access-code-management
+  cancel-in-progress: false
+
+jobs:
+  manage:
+    name: Freischaltcode verwalten
+    runs-on: ubuntu-latest
+    steps:
+      - name: Repository laden
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Code sicher verarbeiten
+        env:
+          VOCALAT_ACCESS_ACTION: ${{ inputs.action }}
+          VOCALAT_ACCESS_CODE: ${{ secrets.VOCALAT_NEW_ACCESS_CODE }}
+        run: |
+          if [ -z "$VOCALAT_ACCESS_CODE" ]; then
+            echo "Das Repository-Secret VOCALAT_NEW_ACCESS_CODE ist nicht gesetzt."
+            exit 1
+          fi
+          node scripts/manage-course-code.mjs
+
+      - name: Codeprüfung testen
+        run: node --test tests/course-access.test.js
+
+      - name: Änderung veröffentlichen
+        run: |
+          if git diff --quiet -- data/course-access.json; then
+            echo "Keine Änderung nötig."
+            exit 0
+          fi
+          git config user.name "VocaLat Code Manager"
+          git config user.email "actions@users.noreply.github.com"
+          git add data/course-access.json
+          git commit -m "Update access code"
+          git push origin HEAD:main

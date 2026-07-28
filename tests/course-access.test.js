@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash, webcrypto } from "node:crypto";
-import { readFileSync, existsSync, mkdtempSync, rmSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -31,15 +31,20 @@ test("course-code normalization is stable and rejects malformed input", () => {
   assert.equal(normalizeCourseAccessCode(TEST_ONLY_CODE), TEST_NORMALIZED_CODE);
   assert.equal(normalizeCourseAccessCode(`  vl1 23456 789ab ${"2222 ".repeat(8)} `), TEST_NORMALIZED_CODE);
   assert.equal(normalizeCourseAccessCode(TEST_ONLY_CODE.replace(/2/g, "O")), TEST_NORMALIZED_CODE.replace(/2/g, "0"));
-  assert.equal(normalizeCourseAccessCode("VL1-too-short"), "");
+  assert.equal(normalizeCourseAccessCode("VL1-too-short"), "VL1TOOSHORT");
   assert.equal(normalizeCourseAccessCode(`VL1-${"A".repeat(200)}`), "");
+  assert.equal(normalizeCourseAccessCode("- \t —"), "");
   assert.equal(normalizeCourseAccessCode(null), "");
 });
 
-test("short custom access codes use the same private verification and session flow", async () => {
+test("custom access codes accept short, letter-only, numeric and special-character values", async () => {
   assert.equal(normalizeCourseAccessCode(TEST_CUSTOM_CODE), TEST_CUSTOM_NORMALIZED_CODE);
   assert.equal(normalizeCourseAccessCode("  testklasse 2027  "), TEST_CUSTOM_NORMALIZED_CODE);
-  assert.equal(normalizeCourseAccessCode("TESTKLASSE/2027"), "");
+  assert.equal(normalizeCourseAccessCode("x"), "X");
+  assert.equal(normalizeCourseAccessCode("7"), "7");
+  assert.equal(normalizeCourseAccessCode("Gaeshi"), "GAESHI");
+  assert.equal(normalizeCourseAccessCode("ferien@2026!"), "FERIEN@2026!");
+  assert.equal(normalizeCourseAccessCode("TESTKLASSE/2027"), "TESTKLASSE/2027");
 
   assert.equal(await verifyCourseAccessCode(TEST_CUSTOM_CODE, customTestManifest, webcrypto), customTestRecord);
   assert.equal(await verifyCourseAccessCode("testklasse-2027", customTestManifest, webcrypto), customTestRecord);
@@ -49,6 +54,17 @@ test("short custom access codes use the same private verification and session fl
   assert.ok(session);
   assert.equal(Object.hasOwn(session, "code"), false);
   assert.equal(await verifyCourseAccessSession(session, customTestManifest, webcrypto), customTestRecord);
+});
+
+test("a one-character code uses the normal verification and session flow", async () => {
+  const normalized = normalizeCourseAccessCode("x");
+  const record = makeRecord(normalized, "course-9002", 7);
+  const manifest = { schemaVersion: 1, revision: 7, active: true, records: [record] };
+
+  assert.equal(await verifyCourseAccessCode("X", manifest, webcrypto), record);
+  const session = await createCourseAccessSession("x", record, webcrypto);
+  assert.ok(session);
+  assert.equal(await verifyCourseAccessSession(session, manifest, webcrypto), record);
 });
 
 test("a fixed valid vector succeeds and a wrong code fails", async () => {
@@ -80,7 +96,7 @@ test("the committed manifest is generic, active and contains no plaintext code o
   assert.equal(manifest.schemaVersion, 1);
   assert.equal(manifest.active, true);
   assert.ok(Number.isSafeInteger(manifest.revision) && manifest.revision > 0);
-  assert.equal(manifest.records.length, 7);
+  assert.ok(manifest.records.length >= 1);
   assert.doesNotMatch(source, /VL1-[0-9A-Z-]{32,}/);
   assert.doesNotMatch(source, /(?:^|["\s:])\d{1,3}[a-z]?-\d{4}(?:["\s,}]|$)/i);
   assert.doesNotMatch(source, /email|customer|kunde|name|label|plaintext/i);
@@ -97,8 +113,62 @@ test("the committed manifest is generic, active and contains no plaintext code o
     ids.add(record.id);
     digests.add(record.accessDigest);
   }
-  assert.equal(ids.size, 7);
-  assert.equal(digests.size, 7);
+  assert.equal(ids.size, manifest.records.length);
+  assert.equal(digests.size, manifest.records.length);
+});
+
+test("remote code manager activates and revokes arbitrary short codes without storing plaintext", () => {
+  const temporaryDirectory = mkdtempSync(join(tmpdir(), "vocalat-remote-code-"));
+  const manifestPath = join(temporaryDirectory, "course-access.json");
+  const originalManifest = JSON.parse(readFileSync(resolve(root, "data/course-access.json"), "utf8"));
+  const startingManifest = { ...originalManifest, records: [] };
+  try {
+    writeTestManifest(manifestPath, startingManifest);
+    const common = {
+      cwd: root,
+      encoding: "utf8",
+      env: { ...process.env, VOCALAT_ACCESS_CODE: "x" }
+    };
+    const activate = spawnSync(process.execPath, [
+      resolve(root, "scripts/manage-course-code.mjs"),
+      "--action", "activate",
+      "--manifest", manifestPath
+    ], common);
+    assert.equal(activate.status, 0, activate.stderr);
+
+    const active = JSON.parse(readFileSync(manifestPath, "utf8"));
+    assert.equal(active.records.length, 1);
+    assert.equal(active.records[0].active, true);
+    assert.doesNotMatch(readFileSync(manifestPath, "utf8"), /["':\s]x["',\s}]/iu);
+    assert.doesNotMatch(`${activate.stdout}${activate.stderr}`, /\bcode x\b/iu);
+
+    const record = active.records[0];
+    assert.equal(verifyDigestForCode("x", record.accessDigest), true);
+
+    const revoke = spawnSync(process.execPath, [
+      resolve(root, "scripts/manage-course-code.mjs"),
+      "--action", "revoke",
+      "--manifest", manifestPath
+    ], common);
+    assert.equal(revoke.status, 0, revoke.stderr);
+    const revoked = JSON.parse(readFileSync(manifestPath, "utf8"));
+    assert.equal(revoked.records[0].active, false);
+    assert.ok(revoked.records[0].revision > record.revision);
+  } finally {
+    rmSync(temporaryDirectory, { recursive: true, force: true });
+  }
+});
+
+test("mobile workflow receives plaintext only through an encrypted GitHub secret", () => {
+  const workflow = readFileSync(resolve(root, ".github/workflows/manage-access-code.yml"), "utf8");
+  const manager = readFileSync(resolve(root, "scripts/manage-course-code.mjs"), "utf8");
+
+  assert.match(workflow, /workflow_dispatch:/);
+  assert.match(workflow, /secrets\.VOCALAT_NEW_ACCESS_CODE/);
+  assert.match(workflow, /permissions:\s*\n\s+contents:\s*write/);
+  assert.doesNotMatch(workflow, /inputs:\s*\n(?:[\s\S]*?)\bcode:/);
+  assert.doesNotMatch(manager, /--code/);
+  assert.match(manager, /process\.env\.VOCALAT_ACCESS_CODE/);
 });
 
 test("generator refuses private output anywhere inside the workspace", () => {
@@ -139,6 +209,14 @@ function makeRecord(normalizedCode, id, revision) {
     active: true,
     revision
   };
+}
+
+function writeTestManifest(path, manifest) {
+  writeFileSync(path, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+}
+
+function verifyDigestForCode(code, digest) {
+  return sha256(Buffer.from(`${ACCESS_DIGEST_NAMESPACE}\0${normalizeCourseAccessCode(code)}`, "utf8")).toString("hex") === digest;
 }
 
 function sha256(value) {

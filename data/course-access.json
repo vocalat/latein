@@ -86,6 +86,13 @@
       "sessionVerifier": "cf20a091b4bb9ae2c64b5285905480116ec628abb087944223e37f45e25dff8f",
       "active": true,
       "revision": 1
+    },
+    {
+      "id": "course-0013",
+      "accessDigest": "55f2eaf0621e118c47fbca1a2ad73b5b5cfafb218ba3a0bb76fc2f394782ef23",
+      "sessionVerifier": "4962d435c0e0ed8a28792c33459e7a8824da7ac20adc778f2da0a974ede08beb",
+      "active": true,
+      "revision": 1
     }
   ]
 }
